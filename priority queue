@@ -1,0 +1,72 @@
+#include <iostream>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
+#include <thread>
+#include <chrono>
+#include <gtest/gtest.h>
+
+// Singleton design pattern for thread-safe priority queue
+class PriorityQueue {
+public:
+    // Get instance of singleton priority queue
+    static PriorityQueue& getInstance() {
+        static PriorityQueue instance;
+        return instance;
+    }
+
+    // Add item to priority queue
+    void push(int value) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        queue_.push(value);
+        condition_.notify_one();
+    }
+
+    // Remove highest-priority item from priority queue
+    int pop() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        condition_.wait(lock, [this](){ return !queue_.empty(); });
+        int value = queue_.top();
+        queue_.pop();
+        return value;
+    }
+
+private:
+    PriorityQueue() {}
+    PriorityQueue(const PriorityQueue&) = delete;
+    PriorityQueue& operator=(const PriorityQueue&) = delete;
+
+    std::priority_queue<int> queue_;
+    std::mutex mutex_;
+    std::condition_variable condition_;
+};
+
+// Thread function to add items to priority queue
+void producer() {
+    for (int i = 0; i < 5; i++) {
+        PriorityQueue::getInstance().push(i);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+}
+
+// Thread function to remove items from priority queue
+void consumer() {
+    for (int i = 0; i < 5; i++) {
+        int value = PriorityQueue::getInstance().pop();
+        EXPECT_EQ(value, i);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+}
+
+// Unit test for priority queue implementation
+TEST(PriorityQueueTest, BasicTest) {
+    std::thread producerThread(producer);
+    std::thread consumerThread(consumer);
+    producerThread.join();
+    consumerThread.join();
+}
+
+int main(int argc, char **argv) {
+    testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+}
